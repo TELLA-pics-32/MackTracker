@@ -1176,6 +1176,9 @@ const GIST_CONFIG = {
   FILENAME: 'macktrack_backup.json'
 };
 const GIST_ID_KEY = 'macktrack_gist_id';
+const GIST_TOKEN_KEY = 'macktrack_gist_token';
+// Load saved token on startup
+try { const _t = localStorage.getItem(GIST_TOKEN_KEY); if (_t) GIST_CONFIG.TOKEN = _t; } catch(e) {}
 let _syncTimer = null;
 let _syncStatus = 'idle'; // idle | syncing | ok | error
 
@@ -2787,6 +2790,19 @@ async function init() {
     return;
   }
   await seedIfEmpty();
+  // Auto-restore from Gist if DB is empty and token+gistId exist
+  try {
+    const _token = localStorage.getItem(GIST_TOKEN_KEY);
+    const _gistId = localStorage.getItem(GIST_ID_KEY);
+    if (_token && _gistId) {
+      GIST_CONFIG.TOKEN = _token;
+      const _sales = await dbGetAll('sales');
+      if (_sales.length === 0) {
+        showToast('Restoring your data…', '');
+        await gistRestore();
+      }
+    }
+  } catch(e) {}
   loadPrices(); // Load any saved custom prices
 
   // Build adjust passkey on open (handled in openModal)
@@ -3734,6 +3750,10 @@ async function openDashDrill(type) {
 
 function openSyncModal() {
   const inp = document.getElementById('gistTokenInput');
+  // Load from localStorage if not in memory
+  if (!GIST_CONFIG.TOKEN) {
+    try { const _t = localStorage.getItem(GIST_TOKEN_KEY); if (_t) GIST_CONFIG.TOKEN = _t; } catch(e) {}
+  }
   if (inp) inp.value = GIST_CONFIG.TOKEN || '';
   const gistId = localStorage.getItem(GIST_ID_KEY);
   const idEl = document.getElementById('syncGistId');
@@ -3745,6 +3765,7 @@ function saveTokenAndSync() {
   const val = document.getElementById('gistTokenInput').value.trim();
   if (!val) { showToast('Enter your GitHub token', 'error'); return; }
   GIST_CONFIG.TOKEN = val;
+  try { localStorage.setItem('macktrack_gist_token', val); } catch(e) {}
   closeModal('syncModal');
   showToast('Token saved — syncing…', '');
   gistSyncNow();
