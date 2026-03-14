@@ -1,0 +1,22 @@
+{
+  "name": "MackTrack",
+  "short_name": "MackTrack",
+  "description": "Offline-first sales & inventory tracker",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#0f0f0f",
+  "theme_color": "#f59e0b",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "https://via.placeholder.com/192x192/f59e0b/000000?text=MT",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "https://via.placeholder.com/512x512/f59e0b/000000?text=MT",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
