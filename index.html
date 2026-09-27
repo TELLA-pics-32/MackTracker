@@ -1663,7 +1663,67 @@ try { const _t = localStorage.getItem(GIST_TOKEN_KEY); if (_t) GIST_CONFIG.TOKEN
 let _syncTimer = null;
 let _syncStatus = 'idle'; // idle | syncing | ok | error
 
+// ─────────────────────────────────────────────
+// Telegram backup — pushes the full data export as a
+// document to your Telegram chat. The FIRST backup sends
+// a new message and pins it; every backup after that EDITS
+// that same message in place, so it's always one up-to-date
+// file in Telegram rather than a growing pile of messages.
+// ─────────────────────────────────────────────
+const TG_BACKUP_MSG_KEY = 'macktrack_tg_backup_msgid';
+let _tgBackupTimer = null;
+
+function triggerTgBackup() {
+  if (!TG_CONFIG.TOKEN || !TG_CONFIG.CHAT_ID) return;
+  clearTimeout(_tgBackupTimer);
+  _tgBackupTimer = setTimeout(tgBackupNow, 2000);
+}
+
+async function tgBackupNow() {
+  if (!TG_CONFIG.TOKEN || !TG_CONFIG.CHAT_ID) return;
+  try {
+    const data = await exportAllData();
+    const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+    const caption = 'MackTrack backup — ' + new Date().toLocaleString('en-GB', { timeZone: 'Africa/Kampala', dateStyle: 'medium', timeStyle: 'short' });
+    const existingId = localStorage.getItem(TG_BACKUP_MSG_KEY);
+
+    if (existingId) {
+      const fd = new FormData();
+      fd.append('chat_id', TG_CONFIG.CHAT_ID);
+      fd.append('message_id', existingId);
+      fd.append('media', JSON.stringify({ type: 'document', media: 'attach://backup', caption }));
+      fd.append('backup', blob, 'macktrack_backup.json');
+      const res = await fetch('https://api.telegram.org/bot' + TG_CONFIG.TOKEN + '/editMessageMedia', { method: 'POST', body: fd });
+      const result = await res.json();
+      if (!result.ok) throw new Error(result.description || 'edit failed');
+    } else {
+      const fd = new FormData();
+      fd.append('chat_id', TG_CONFIG.CHAT_ID);
+      fd.append('document', blob, 'macktrack_backup.json');
+      fd.append('caption', caption);
+      const res = await fetch('https://api.telegram.org/bot' + TG_CONFIG.TOKEN + '/sendDocument', { method: 'POST', body: fd });
+      const result = await res.json();
+      if (!result.ok) throw new Error(result.description || 'send failed');
+      localStorage.setItem(TG_BACKUP_MSG_KEY, result.result.message_id);
+      try {
+        await fetch('https://api.telegram.org/bot' + TG_CONFIG.TOKEN + '/pinChatMessage', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: TG_CONFIG.CHAT_ID, message_id: result.result.message_id, disable_notification: true })
+        });
+      } catch (e) {}
+    }
+  } catch (e) {
+    console.warn('Telegram backup failed:', e);
+    const msg = String((e && e.message) || '').toLowerCase();
+    // If the old message can no longer be edited (e.g. too old), start a fresh one next time
+    if (msg.includes('not found') || msg.includes("can't be edited")) {
+      localStorage.removeItem(TG_BACKUP_MSG_KEY);
+    }
+  }
+}
+
 function triggerSync() {
+  triggerTgBackup();
   if (!GIST_CONFIG.TOKEN) return;
   clearTimeout(_syncTimer);
   _syncTimer = setTimeout(gistSyncNow, 2000);
@@ -1694,7 +1754,18 @@ async function gistSyncNow() {
 async function gistRestore() {
   if (!GIST_CONFIG.TOKEN) { showToast('Add your GitHub token first', 'error'); return; }
   const gistId = localStorage.getItem(GIST_ID_KEY);
-  if (!gistId) { showToast('No backup found', 'error'); return; }
+  if (!gistId) { showToast('No backup found on this device — use "Restore Using This Gist ID" below if you have it from gist.github.com', 'error'); return; }
+  await restoreFromGistIdValue(gistId);
+}
+
+async function restoreFromGistId() {
+  const val = document.getElementById('restoreGistIdInput').value.trim();
+  if (!val) { showToast('Paste the Gist ID first', 'error'); return; }
+  if (!GIST_CONFIG.TOKEN) { showToast('Add your GitHub token above first', 'error'); return; }
+  await restoreFromGistIdValue(val);
+}
+
+async function restoreFromGistIdValue(gistId) {
   try {
     setSyncPill('syncing');
     const res = await fetch('https://api.github.com/gists/' + gistId, { headers: { Authorization: 'token ' + GIST_CONFIG.TOKEN } });
@@ -1704,8 +1775,10 @@ async function gistRestore() {
     if (!json) throw new Error('No data in backup');
     const data = JSON.parse(json);
     await importAllData(data);
+    localStorage.setItem(GIST_ID_KEY, gistId); // remember it again so future auto-sync/restore works normally
     setSyncPill('ok');
     showToast('Data restored from backup ✓', 'success');
+    closeModal('syncModal');
     renderDashboard();
   } catch(e) {
     setSyncPill('error');
@@ -4749,6 +4822,19 @@ function openSyncModal() {
       <button class="btn btn-primary" style="width:100%;justify-content:center" onclick="saveTokenAndSync()">Save Token & Sync Now</button>
       <button class="btn btn-ghost" style="width:100%;justify-content:center" onclick="gistRestore()">↓ Restore from Backup</button>
       <button class="btn btn-ghost" style="width:100%;justify-content:center;font-size:10px;color:var(--text3)" onclick="exportJSON()">↓ Download JSON backup</button>
+    </div>
+    <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:14px">
+      <div style="font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--text3);margin-bottom:8px">Lost everything, including this app's memory?</div>
+      <div style="font-size:11px;color:var(--text2);margin-bottom:10px;line-height:1.7">
+        If this phone/browser was wiped, it also forgot which backup was yours — even though the backup itself is still sitting safely on GitHub. Go to
+        <a href="https://gist.github.com" target="_blank" style="color:var(--amber)">gist.github.com</a> while logged in, open the one called
+        "MackTrack Backup", and copy the string of letters/numbers at the end of its URL. Paste it below.
+      </div>
+      <div class="form-group">
+        <label class="form-label">Gist ID</label>
+        <input class="form-input" type="text" id="restoreGistIdInput" placeholder="e.g. 9f8a2b1c4d5e6f7a8b9c0d1e2f3a4b5c"/>
+      </div>
+      <button class="btn btn-ghost" style="width:100%;justify-content:center" onclick="restoreFromGistId()">↓ Restore Using This Gist ID</button>
     </div>
     <div style="border-top:1px solid var(--border);margin-top:16px;padding-top:14px">
       <div style="font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--text3);margin-bottom:10px">Telegram Log</div>
