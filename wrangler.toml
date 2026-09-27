@@ -1,6 +1,6 @@
 name = "macktracker"
-main = "worker.js" # Replace with your main JS file path (e.g., "index.js" or "worker.js")
+main = "worker.js"
 compatibility_date = "2026-09-25"
 
-[vars]
-# Optional default variables
+[site]
+bucket = ""
