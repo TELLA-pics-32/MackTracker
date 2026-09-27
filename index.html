@@ -11,6 +11,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black"/>
   <meta name="apple-mobile-web-app-title" content="MackTrack"/>
   <link rel="apple-touch-icon" href="icons/icon-192.png"/>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
 
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
@@ -1600,6 +1601,32 @@ try {
   const _tt = localStorage.getItem(TG_TOKEN_KEY); if (_tt) TG_CONFIG.TOKEN = _tt;
   const _tc = localStorage.getItem(TG_CHAT_KEY);  if (_tc) TG_CONFIG.CHAT_ID = _tc;
 } catch(e) {}
+
+// ─────────────────────────────────────────────
+// Telegram Mini App mode — active only when this
+// page is opened from inside Telegram (via the bot's
+// menu button / web_app link), not in a normal browser.
+// ─────────────────────────────────────────────
+let tgWebApp = null;
+if (window.Telegram && window.Telegram.WebApp) {
+  tgWebApp = window.Telegram.WebApp;
+  tgWebApp.ready();
+  tgWebApp.expand();
+  try { tgWebApp.disableVerticalSwipes(); } catch(e) {}
+  try {
+    tgWebApp.setHeaderColor('#0f0f0f');
+    tgWebApp.setBackgroundColor('#0f0f0f');
+  } catch(e) {}
+  try { tgWebApp.enableClosingConfirmation(); } catch(e) {}
+
+  // The person opening it is already known to Telegram — use their
+  // id automatically instead of asking them to paste it into settings.
+  const _tgUser = tgWebApp.initDataUnsafe && tgWebApp.initDataUnsafe.user;
+  if (_tgUser && _tgUser.id && !localStorage.getItem(TG_CHAT_KEY)) {
+    TG_CONFIG.CHAT_ID = String(_tgUser.id);
+    localStorage.setItem(TG_CHAT_KEY, TG_CONFIG.CHAT_ID);
+  }
+}
 
 async function tgSend(text) {
   if (!TG_CONFIG.TOKEN || !TG_CONFIG.CHAT_ID) return;
@@ -3511,6 +3538,10 @@ function showToast(msg, type = '') {
 // ═══════════════════════════════════════════════
 // PWA INSTALL
 // ═══════════════════════════════════════════════
+if (tgWebApp) {
+  const _ib = document.getElementById('installBtn');
+  if (_ib) _ib.style.display = 'none';
+}
 let deferredPrompt;
 window.addEventListener('beforeinstallprompt', e => {
   e.preventDefault();
